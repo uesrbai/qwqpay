@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>支付成功</title>
+<style>
+  body { font-family: sans-serif; text-align: center; padding: 80px 20px; background:#f5f6f8; }
+  .ok { color: #2e7d32; font-size: 48px; }
+  h1 { margin-top: 8px; }
+  p { color: #666; }
+</style>
+</head>
+<body>
+  <div class="ok">✓</div>
+  <h1>支付成功</h1>
+  <p id="detail">正在确认订单信息...</p>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const sessionId = params.get('session_id');
+if (sessionId) {
+  fetch('/api/session/' + sessionId)
+    .then(r => r.json())
+    .then(data => {
+      const amount = (data.amount_total / 100).toFixed(2);
+      document.getElementById('detail').textContent =
+        '已收到金额：' + amount + ' ' + (data.currency || '').toUpperCase();
+    })
+    .catch(() => {
+      document.getElementById('detail').textContent = '支付已完成。';
+    });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>查单</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8;
+    padding: 32px 16px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  .back { font-size: 13px; color: #635bff; text-decoration: none; }
+  .row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  input, select {
+    flex: 1;
+    min-width: 140px;
+    padding: 10px;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-sizing: border-box;
+  }
+  button {
+    padding: 10px 18px;
+    font-size: 14px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background: #635bff;
+    color: #fff;
+  }
+  button.secondary { background: #fff; color: #635bff; border: 1px solid #635bff; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #eee; }
+  th { color: #888; font-weight: 500; }
+  .tag { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+  .tag.paid { background: #e6f4ea; color: #2e7d32; }
+  .tag.unpaid { background: #fdecea; color: #c62828; }
+  .tag.other { background: #f0f0f5; color: #555; }
+  .err { color: #d33; font-size: 13px; margin-top: 8px; }
+  .detail-line { font-size: 14px; margin: 6px 0; }
+  .detail-line b { color: #333; }
+  .empty { color: #999; font-size: 13px; text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← 返回收款台</a>
+  <div class="card">
+    <h1>按订单 ID 查单</h1>
+    <div class="row">
+      <input id="orderId" placeholder="输入 Checkout Session ID（如 cs_test_xxx）" />
+      <button onclick="searchById()">查询</button>
+    </div>
+    <div id="detailBox"></div>
+    <div id="detailErr" class="err"></div>
+  </div>
+
+  <div class="card">
+    <h1>最近收款记录</h1>
+    <div class="row">
+      <input id="emailFilter" placeholder="按邮箱筛选（可选）" />
+      <select id="statusFilter">
+        <option value="">全部状态</option>
+        <option value="paid">已支付</option>
+        <option value="unpaid">未支付</option>
+      </select>
+      <button class="secondary" onclick="loadList()">刷新</button>
+    </div>
+    <table id="listTable" style="display:none;">
+      <thead>
+        <tr>
+          <th>时间</th>
+          <th>名称</th>
+          <th>金额</th>
+          <th>状态</th>
+          <th>发起人</th>
+          <th>订单ID</th>
+        </tr>
+      </thead>
+      <tbody id="listBody"></tbody>
+    </table>
+    <div id="listEmpty" class="empty" style="display:none;">暂无记录</div>
+  </div>
+</div>
+
+<script>
+function statusTag(o) {
+  if (o.payment_status === 'paid') return '<span class="tag paid">已支付</span>';
+  if (o.payment_status === 'unpaid') return '<span class="tag unpaid">未支付</span>';
+  return '<span class="tag other">' + (o.payment_status || o.status || '') + '</span>';
+}
+
+async function searchById() {
+  const id = document.getElementById('orderId').value.trim();
+  const box = document.getElementById('detailBox');
+  const errBox = document.getElementById('detailErr');
+  box.innerHTML = '';
+  errBox.textContent = '';
+  if (!id) { errBox.textContent = '请输入订单 ID'; return; }
+
+  try {
+    const res = await fetch('/api/orders/' + encodeURIComponent(id));
+    const data = await res.json();
+    if (data.error) { errBox.textContent = data.error; return; }
+    box.innerHTML =
+      '<div class="detail-line"><b>名称：</b>' + (data.productName || '-') + '</div>' +
+      '<div class="detail-line"><b>金额：</b>' + (data.amount || '-') + ' ' + data.currency + '</div>' +
+      '<div class="detail-line"><b>状态：</b>' + statusTag(data) + '</div>' +
+      '<div class="detail-line"><b>邮箱：</b>' + (data.email || '-') + '</div>' +
+      '<div class="detail-line"><b>发起人：</b>' + (data.operatorName || '-') + '</div>' +
+      '<div class="detail-line"><b>创建时间：</b>' + (data.created || '-') + '</div>' +
+      '<div class="detail-line"><b>订单ID：</b>' + data.id + '</div>';
+  } catch (e) {
+    errBox.textContent = '查询失败：' + e.message;
+  }
+}
+
+async function loadList() {
+  const email = document.getElementById('emailFilter').value.trim();
+  const status = document.getElementById('statusFilter').value;
+  const params = new URLSearchParams();
+  if (email) params.set('email', email);
+  if (status) params.set('status', status);
+
+  const table = document.getElementById('listTable');
+  const body = document.getElementById('listBody');
+  const empty = document.getElementById('listEmpty');
+
+  try {
+    const res = await fetch('/api/orders?' + params.toString());
+    const data = await res.json();
+    const orders = data.orders || [];
+
+    if (orders.length === 0) {
+      table.style.display = 'none';
+      empty.style.display = 'block';
+      return;
+    }
+
+    body.innerHTML = orders.map(o =>
+      '<tr>' +
+        '<td>' + (o.created || '-') + '</td>' +
+        '<td>' + (o.productName || '-') + '</td>' +
+        '<td>' + (o.amount || '-') + ' ' + o.currency + '</td>' +
+        '<td>' + statusTag(o) + '</td>' +
+        '<td>' + (o.operatorName || '-') + '</td>' +
+        '<td style="font-size:11px;color:#999;">' + o.id + '</td>' +
+      '</tr>'
+    ).join('');
+    table.style.display = 'table';
+    empty.style.display = 'none';
+  } catch (e) {
+    empty.textContent = '加载失败：' + e.message;
+    empty.style.display = 'block';
+    table.style.display = 'none';
+  }
+}
+
+// 进入页面自动加载一次列表
+loadList();
+</script>
+</body>
+</html>

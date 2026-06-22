@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>收款台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    padding: 32px;
+    width: 100%;
+    max-width: 380px;
+  }
+  h1 { font-size: 20px; margin: 0 0 24px; }
+  label { font-size: 13px; color: #555; display: block; margin-bottom: 6px; }
+  input {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    box-sizing: border-box;
+  }
+  .amount-group {
+    display: flex;
+    margin-bottom: 16px;
+  }
+  .amount-group select {
+    width: 90px;
+    flex-shrink: 0;
+    padding: 12px 8px;
+    font-size: 15px;
+    border: 1px solid #ddd;
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    background: #f7f7fa;
+    box-sizing: border-box;
+  }
+  .amount-group input {
+    flex: 1;
+    margin-bottom: 0;
+    border-radius: 0 8px 8px 0;
+  }
+  button {
+    width: 100%;
+    padding: 13px;
+    font-size: 15px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 12px;
+  }
+  .btn-pay { background: #635bff; color: #fff; }
+  .btn-link { background: #fff; color: #635bff; border: 1px solid #635bff; }
+  .result {
+    margin-top: 16px;
+    font-size: 13px;
+    word-break: break-all;
+    background: #f0f0f5;
+    padding: 12px;
+    border-radius: 8px;
+    display: none;
+  }
+  .result a { color: #635bff; }
+  .err { color: #d33; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>发起收款</h1>
+  <div id="operatorBox" style="display:none; font-size:12px; color:#888; margin-bottom:16px;"></div>
+  <label>商品/备注名称</label>
+  <input id="productName" placeholder="例如：服务费" />
+  <label>金额</label>
+  <div class="amount-group">
+    <select id="currency">
+      <option value="hkd">HKD</option>
+      <option value="cny" selected>CNY</option>
+      <option value="usd">USD</option>
+      <option value="eur">EUR</option>
+      <option value="gbp">GBP</option>
+    </select>
+    <input id="amount" type="number" min="0.01" step="0.01" placeholder="99.00" />
+  </div>
+
+  <button class="btn-pay" onclick="payNow()">立即支付（跳转 Stripe 结账）</button>
+  <button class="btn-link" onclick="genLink()">生成支付链接（可分享）</button>
+
+  <div id="result" class="result"></div>
+  <div id="error" class="err"></div>
+
+  <p style="text-align:center; margin-top:20px;">
+    <a href="/orders.html" style="color:#635bff; font-size:13px;">查单 →</a>
+  </p>
+</div>
+
+<script>
+async function payNow() {
+  clearMsg();
+  const amount = document.getElementById('amount').value;
+  const currency = document.getElementById('currency').value;
+  const productName = document.getElementById('productName').value;
+  try {
+    const res = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, currency, productName })
+    });
+    const data = await res.json();
+    if (data.error) return showError(data.error);
+    window.location.href = data.url; // 直接跳转到 Stripe 支付页
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function genLink() {
+  clearMsg();
+  const amount = document.getElementById('amount').value;
+  const currency = document.getElementById('currency').value;
+  const productName = document.getElementById('productName').value;
+  try {
+    const res = await fetch('/api/create-payment-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, currency, productName })
+    });
+    const data = await res.json();
+    if (data.error) return showError(data.error);
+    lastLinkUrl = data.url;
+    const box = document.getElementById('result');
+    box.style.display = 'block';
+    box.innerHTML =
+      '支付链接已生成：<br><a href="' + data.url + '" target="_blank">' + data.url + '</a>' +
+      '<br><button style="margin-top:10px;" onclick="pushToWecom()">推送到企业微信</button>' +
+      '<div id="wecomMsg" style="margin-top:6px;font-size:12px;color:#666;"></div>';
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+let lastLinkUrl = '';
+
+async function pushToWecom() {
+  const msgBox = document.getElementById('wecomMsg');
+  msgBox.textContent = '推送中...';
+  try {
+    const res = await fetch('/api/wecom/send-app-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: document.getElementById('productName').value || '收款',
+        description: '金额：' + document.getElementById('amount').value + ' ' + document.getElementById('currency').value.toUpperCase(),
+        url: lastLinkUrl
+      })
+    });
+    const data = await res.json();
+    if (data.error) { msgBox.textContent = '推送失败：' + data.error; return; }
+    msgBox.textContent = '已推送到企业微信 ✓';
+  } catch (e) {
+    msgBox.textContent = '推送失败：' + e.message;
+  }
+}
+
+function showError(msg) {
+  document.getElementById('error').textContent = '出错了：' + msg;
+}
+function clearMsg() {
+  document.getElementById('error').textContent = '';
+  document.getElementById('result').style.display = 'none';
+}
+
+// 页面加载时，查询是否已识别出企业微信操作人身份
+(async function checkWhoami() {
+  try {
+    const res = await fetch('/api/whoami');
+    const data = await res.json();
+    if (data.identified) {
+      const box = document.getElementById('operatorBox');
+      box.style.display = 'block';
+      box.textContent = '当前发起人：' + data.name + '（企业微信已识别）';
+    }
+  } catch (e) {
+    // 忽略，非企业微信环境下不识别也没关系
+  }
+})();
+</script>
+</body>
+</html>
